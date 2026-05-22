@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, getCountFromServer } from 'firebase/firestore';
 import { db } from '../firebase';
 
 const CITY_EMOJIS = {
@@ -12,12 +12,12 @@ const CITY_EMOJIS = {
 };
 
 const CITY_META = {
-  chicagonw:       'Palatine · Arlington Hts · Schaumburg & more',
-  stl:             'Soulard · Downtown · CWE & more',
-  southwestmi:     'Harbor Country · St. Joe · Buchanan',
-  charleston:      'Downtown · Peninsula',
-  champaignurbana: 'Campus Town · Downtown · Urbana',
-  westlafayette:   'Purdue Campus · West Lafayette · Lafayette',
+  chicagonw:       'PALATINE · ARLINGTON HTS · SCHAUMBURG & MORE',
+  stl:             'SOULARD · DOWNTOWN · CWE & MORE',
+  southwestmi:     'HARBOR COUNTRY · ST. JOE · BUCHANAN',
+  charleston:      'DOWNTOWN · PENINSULA',
+  champaignurbana: 'CAMPUS TOWN · DOWNTOWN · URBANA',
+  westlafayette:   'PURDUE CAMPUS · WEST LAFAYETTE · LAFAYETTE',
 };
 
 export default function LandingPage() {
@@ -27,22 +27,29 @@ export default function LandingPage() {
   useEffect(() => {
     async function fetchCities() {
       try {
-        // Avoid compound query (where + orderBy on different fields requires a
-        // composite Firestore index). Filter by status only, sort client-side.
-        const q = query(
-          collection(db, 'cities'),
-          where('status', '==', 'live')
-        );
+        // Avoid composite index requirement: filter only, sort client-side
+        const q = query(collection(db, 'cities'), where('status', '==', 'live'));
         const snap = await getDocs(q);
         console.log(`[LandingPage] Firestore returned ${snap.docs.length} live cities`);
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        // Sort by createdAt ascending client-side
-        docs.sort((a, b) => {
-          const aTime = a.createdAt?.toMillis?.() ?? 0;
-          const bTime = b.createdAt?.toMillis?.() ?? 0;
-          return aTime - bTime;
-        });
-        setCities(docs);
+
+        let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        docs.sort((a, b) => (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0));
+
+        // Fetch live venue counts in parallel
+        const withCounts = await Promise.all(
+          docs.map(async city => {
+            try {
+              const venuesRef = collection(db, 'cities', city.id, 'venues');
+              const liveQuery = query(venuesRef, where('status', '==', 'live'));
+              const countSnap = await getCountFromServer(liveQuery);
+              return { ...city, venueCount: countSnap.data().count };
+            } catch {
+              return { ...city, venueCount: city.venueCount ?? 0 };
+            }
+          })
+        );
+
+        setCities(withCounts);
       } catch (err) {
         console.error('Failed to fetch cities:', err);
       } finally {
@@ -55,40 +62,74 @@ export default function LandingPage() {
   return (
     <div style={{ background: '#000', color: '#fff', minHeight: '100vh', fontFamily: 'sans-serif' }}>
       <style>{`
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: #000; }
+
         .city-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-          gap: 1rem;
-          padding: 1rem 2rem 2rem;
-          max-width: 1200px;
+          gap: 16px;
+          padding: 8px 24px 40px;
+          max-width: 860px;
           margin: 0 auto;
         }
+
         .city-card {
-          background: #111;
-          border: 1px solid #222;
+          background: #0f0f0f;
+          border: 1px solid #1e1e1e;
           border-radius: 12px;
-          padding: 1.5rem;
+          padding: 28px;
           text-decoration: none;
           color: #fff;
-          transition: border-color 0.2s, background 0.2s;
           display: block;
+          transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
         }
         .city-card:hover {
-          border-color: #f59e0b;
-          background: #161616;
+          border-color: #4ab8e8;
+          transform: translateY(-3px);
+          box-shadow: 0 12px 40px rgba(74, 184, 232, 0.12);
+        }
+
+        .card-emoji {
+          font-size: 28px;
+          line-height: 1;
+          margin-bottom: 12px;
+        }
+        .card-name {
+          font-family: Impact, "Arial Black", "Arial Narrow", sans-serif;
+          font-size: 22px;
+          font-weight: 900;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          color: #fff;
+          display: inline;
+        }
+        .card-state {
+          font-family: Impact, "Arial Black", "Arial Narrow", sans-serif;
+          font-size: 22px;
+          color: #4ab8e8;
+          margin-left: 8px;
+          display: inline;
+        }
+        .card-meta {
+          font-size: 11px;
+          color: #555;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          margin-top: 8px;
         }
         .spot-badge {
           display: inline-block;
-          background: #1a1a1a;
-          border: 1px solid #333;
-          border-radius: 999px;
-          padding: 2px 10px;
-          font-size: 0.75rem;
-          color: #aaa;
-          margin-top: 0.75rem;
+          margin-top: 14px;
+          padding: 3px 12px;
+          border-radius: 20px;
+          border: 1px solid rgba(74, 184, 232, 0.3);
+          color: #4ab8e8;
+          font-size: 12px;
+          font-weight: 500;
+          letter-spacing: 0.02em;
         }
+
         .axes-section {
           max-width: 640px;
           margin: 0 auto;
@@ -135,9 +176,10 @@ export default function LandingPage() {
         }
       `}</style>
 
+      {/* Header */}
       <div style={{ textAlign: 'center', padding: '3rem 2rem 1.5rem' }}>
         <h1 style={{
-          fontFamily: 'Impact, "Arial Narrow", sans-serif',
+          fontFamily: 'Impact, "Arial Black", "Arial Narrow", sans-serif',
           fontSize: 'clamp(2.5rem, 8vw, 5rem)',
           letterSpacing: '0.05em',
           color: '#fff',
@@ -148,35 +190,39 @@ export default function LandingPage() {
         <p style={{ color: '#888', fontSize: '1.1rem', marginBottom: '1.5rem' }}>
           Find your city&apos;s best bars &amp; restaurants
         </p>
-        <div style={{ width: 80, height: 2, background: '#f59e0b', margin: '0 auto' }} />
+        <div style={{ width: 80, height: 2, background: '#f59e0b', margin: '0 auto 2rem' }} />
       </div>
 
+      {/* City grid */}
       {loading ? (
         <p style={{ textAlign: 'center', color: '#555', padding: '2rem' }}>Loading cities…</p>
       ) : (
         <div className="city-grid">
           {cities.map(city => {
             const emoji = CITY_EMOJIS[city.subdomain] || '📍';
-            const meta = CITY_META[city.subdomain] || `${city.name}, ${city.state}`;
+            const meta = CITY_META[city.subdomain] || `${city.name}, ${city.state}`.toUpperCase();
             return (
               <a
                 key={city.id}
                 href={`https://${city.subdomain}.bargraph.city`}
                 className="city-card"
               >
-                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>{emoji}</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{city.name}</div>
-                <div style={{ color: '#60a5fa', fontSize: '0.85rem', marginTop: '0.2rem' }}>{city.state}</div>
-                <div style={{ color: '#666', fontSize: '0.8rem', marginTop: '0.5rem' }}>{meta}</div>
-                <span className="spot-badge">
-                  {city.venueCount ? `${city.venueCount} spots` : 'View map'}
-                </span>
+                <div className="card-emoji">{emoji}</div>
+                <div>
+                  <span className="card-name">{city.name}</span>
+                  <span className="card-state">{city.state}</span>
+                </div>
+                <div className="card-meta">{meta}</div>
+                {city.venueCount > 0 && (
+                  <div className="spot-badge">{city.venueCount} spots</div>
+                )}
               </a>
             );
           })}
         </div>
       )}
 
+      {/* How it works */}
       <div className="axes-section">
         <div className="axes-title">How it works</div>
 
