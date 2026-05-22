@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Public read for live cities and venues
+    match /cities/{cityId} {
+      allow read: if true;
+      allow write: if false; // admin only via Admin SDK for now
+
+      match /venues/{venueId} {
+        allow read: if true;
+        allow write: if false; // admin only via Admin SDK for now
+      }
+    }
+  }
+}
