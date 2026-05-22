@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 
 const CITY_EMOJIS = {
@@ -27,13 +27,22 @@ export default function LandingPage() {
   useEffect(() => {
     async function fetchCities() {
       try {
+        // Avoid compound query (where + orderBy on different fields requires a
+        // composite Firestore index). Filter by status only, sort client-side.
         const q = query(
           collection(db, 'cities'),
-          where('status', '==', 'live'),
-          orderBy('createdAt', 'asc')
+          where('status', '==', 'live')
         );
         const snap = await getDocs(q);
-        setCities(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        console.log(`[LandingPage] Firestore returned ${snap.docs.length} live cities`);
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Sort by createdAt ascending client-side
+        docs.sort((a, b) => {
+          const aTime = a.createdAt?.toMillis?.() ?? 0;
+          const bTime = b.createdAt?.toMillis?.() ?? 0;
+          return aTime - bTime;
+        });
+        setCities(docs);
       } catch (err) {
         console.error('Failed to fetch cities:', err);
       } finally {
@@ -81,39 +90,48 @@ export default function LandingPage() {
           margin-top: 0.75rem;
         }
         .axes-section {
-          max-width: 700px;
+          max-width: 640px;
           margin: 0 auto;
-          padding: 3rem 2rem;
+          padding: 3rem 2rem 4rem;
+        }
+        .axes-title {
           text-align: center;
-        }
-        .axes-row {
-          display: flex;
-          justify-content: space-around;
-          margin-top: 2rem;
-          gap: 2rem;
-        }
-        .axis-box {
-          background: #111;
-          border: 1px solid #222;
-          border-radius: 10px;
-          padding: 1.25rem 1.75rem;
-          flex: 1;
-        }
-        .axis-label {
-          font-size: 0.7rem;
-          letter-spacing: 0.1em;
-          color: #666;
+          font-size: 0.75rem;
+          letter-spacing: 0.15em;
+          color: #444;
           text-transform: uppercase;
-          margin-bottom: 0.5rem;
+          margin-bottom: 2.5rem;
         }
-        .axis-title {
-          font-size: 1rem;
-          font-weight: bold;
-          margin-bottom: 0.25rem;
+        .axis-row {
+          margin-bottom: 2rem;
         }
-        .axis-desc {
-          font-size: 0.8rem;
-          color: #888;
+        .axis-ends {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 0.4rem;
+        }
+        .axis-end-label {
+          font-size: 0.78rem;
+          color: #bbb;
+          font-weight: 500;
+        }
+        .axis-gradient-x {
+          height: 3px;
+          border-radius: 2px;
+          background: linear-gradient(to right, #4f4f4f, #f59e0b);
+        }
+        .axis-gradient-y {
+          height: 3px;
+          border-radius: 2px;
+          background: linear-gradient(to right, #4f4f4f, #e879f9);
+        }
+        .axis-name {
+          text-align: center;
+          font-size: 0.68rem;
+          letter-spacing: 0.1em;
+          color: #444;
+          text-transform: uppercase;
+          margin-top: 0.4rem;
         }
       `}</style>
 
@@ -160,20 +178,24 @@ export default function LandingPage() {
       )}
 
       <div className="axes-section">
-        <h2 style={{ fontSize: '1rem', letterSpacing: '0.1em', color: '#555', textTransform: 'uppercase' }}>
-          How it works
-        </h2>
-        <div className="axes-row">
-          <div className="axis-box">
-            <div className="axis-label">X Axis →</div>
-            <div className="axis-title">Vibe</div>
-            <div className="axis-desc">Dive bar to upscale lounge</div>
+        <div className="axes-title">How it works</div>
+
+        <div className="axis-row">
+          <div className="axis-ends">
+            <span className="axis-end-label">Dive</span>
+            <span className="axis-end-label">Classy</span>
           </div>
-          <div className="axis-box">
-            <div className="axis-label">Y Axis ↑</div>
-            <div className="axis-title">Price</div>
-            <div className="axis-desc">Budget to splurge</div>
+          <div className="axis-gradient-x" />
+          <div className="axis-name">X axis — Vibe</div>
+        </div>
+
+        <div className="axis-row">
+          <div className="axis-ends">
+            <span className="axis-end-label">Just Drinks</span>
+            <span className="axis-end-label">Destination Dining</span>
           </div>
+          <div className="axis-gradient-y" />
+          <div className="axis-name">Y axis — Food &amp; Experience</div>
         </div>
       </div>
 
