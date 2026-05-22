@@ -1,15 +1,35 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Public read for live cities and venues
+
+    // Cities and venues — public read
     match /cities/{cityId} {
       allow read: if true;
-      allow write: if false; // admin only via Admin SDK for now
+      allow write: if request.auth != null &&
+        request.auth.token.email == "jrgerberich@gmail.com";
 
       match /venues/{venueId} {
         allow read: if true;
-        allow write: if false; // admin only via Admin SDK for now
+        // Logged-in users can create pending venues
+        allow create: if request.auth != null &&
+          request.resource.data.status == "pending";
+        // Only admin can update/delete
+        allow update, delete: if request.auth != null &&
+          request.auth.token.email == "jrgerberich@gmail.com";
       }
+    }
+
+    // Wanted cities — public read, admin write
+    match /wanted_cities/{cityId} {
+      allow read: if true;
+      allow write: if request.auth != null &&
+        request.auth.token.email == "jrgerberich@gmail.com";
+    }
+
+    // User votes — each user manages their own
+    match /users/{userId}/votes/{cityId} {
+      allow read, write: if request.auth != null &&
+        request.auth.uid == userId;
     }
   }
 }

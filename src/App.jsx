@@ -1,7 +1,13 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
 import LandingPage from './pages/LandingPage';
 import CityPage from './pages/CityPage';
+import AuthPage from './pages/AuthPage';
+import AuthCallbackPage from './pages/AuthCallbackPage';
+import SubmitPage from './pages/SubmitPage';
+import AdminPage from './pages/AdminPage';
 
 function getSubdomain() {
   const hostname = window.location.hostname;
@@ -22,41 +28,45 @@ function getSubdomain() {
 
 const subdomain = getSubdomain();
 
-function ComingSoon() {
-  return (
-    <div style={{
-      background: '#000',
-      color: '#fff',
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: 'sans-serif',
-    }}>
-      <p>Coming soon.</p>
-    </div>
-  );
-}
-
 export default function App() {
   if (subdomain) {
     return (
-      <BrowserRouter>
-        <Routes>
-          <Route path="*" element={<CityPage subdomain={subdomain} />} />
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="*" element={<CityPage subdomain={subdomain} />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
     );
   }
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/submit" element={<ComingSoon />} />
-        <Route path="/admin" element={<ComingSoon />} />
-        <Route path="*" element={<LandingPage />} />
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route
+            path="/submit"
+            element={
+              <ProtectedRoute>
+                <SubmitPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute requireAdmin>
+                <AdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<LandingPage />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }

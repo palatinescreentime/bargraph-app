@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, getCountFromServer } from 'firebase/firestore';
+import {
+  collection, query, where, getDocs, getCountFromServer,
+  doc, getDoc, setDoc, updateDoc, increment, runTransaction,
+} from 'firebase/firestore';
 import { db } from '../firebase';
+import { useAuth } from '../contexts/AuthContext';
 
 const CITY_EMOJIS = {
   chicagonw:       '🍺',
@@ -21,13 +25,16 @@ const CITY_META = {
 };
 
 export default function LandingPage() {
+  const { currentUser } = useAuth();
   const [cities, setCities] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [wantedCities, setWantedCities] = useState([]);
+  const [userVotes, setUserVotes] = useState({}); // { cityId: true }
+  const [votingId, setVotingId] = useState(null);
 
   useEffect(() => {
     async function fetchCities() {
       try {
-        // Avoid composite index requirement: filter only, sort client-side
         const q = query(collection(db, 'cities'), where('status', '==', 'live'));
         const snap = await getDocs(q);
         console.log(`[LandingPage] Firestore returned ${snap.docs.length} live cities`);
@@ -35,7 +42,6 @@ export default function LandingPage() {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         docs.sort((a, b) => (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0));
 
-        // Fetch live venue counts in parallel
         const withCounts = await Promise.all(
           docs.map(async city => {
             try {
@@ -56,8 +62,64 @@ export default function LandingPage() {
         setLoading(false);
       }
     }
+
+    async function fetchWantedCities() {
+      try {
+        const snap = await getDocs(collection(db, 'wanted_cities'));
+        const items = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (b.votes || 0) - (a.votes || 0));
+        setWantedCities(items);
+      } catch (err) {
+        console.error('Failed to fetch wanted cities:', err);
+      }
+    }
+
     fetchCities();
+    fetchWantedCities();
   }, []);
+
+  useEffect(() => {
+    if (!currentUser) { setUserVotes({}); return; }
+    async function fetchUserVotes() {
+      try {
+        const snap = await getDocs(collection(db, 'users', currentUser.uid, 'votes'));
+        const votes = {};
+        snap.docs.forEach(d => { votes[d.id] = true; });
+        setUserVotes(votes);
+      } catch {}
+    }
+    fetchUserVotes();
+  }, [currentUser]);
+
+  async function handleVote(cityId) {
+    if (!currentUser) {
+      sessionStorage.setItem('bargraphIntendedDestination', '/');
+      window.location.href = '/auth';
+      return;
+    }
+    if (userVotes[cityId] || votingId) return;
+
+    setVotingId(cityId);
+    try {
+      await runTransaction(db, async (txn) => {
+        const voteRef = doc(db, 'users', currentUser.uid, 'votes', cityId);
+        const voteSnap = await txn.get(voteRef);
+        if (voteSnap.exists()) return; // already voted
+        const cityRef = doc(db, 'wanted_cities', cityId);
+        txn.set(voteRef, { votedAt: new Date() });
+        txn.update(cityRef, { votes: increment(1) });
+      });
+      setUserVotes(prev => ({ ...prev, [cityId]: true }));
+      setWantedCities(prev =>
+        prev.map(c => c.id === cityId ? { ...c, votes: (c.votes || 0) + 1 } : c)
+      );
+    } catch (err) {
+      console.error('Vote failed:', err);
+    } finally {
+      setVotingId(null);
+    }
+  }
 
   return (
     <div style={{ background: '#000', color: '#fff', minHeight: '100vh', fontFamily: 'sans-serif' }}>
@@ -90,89 +152,98 @@ export default function LandingPage() {
           box-shadow: 0 12px 40px rgba(74, 184, 232, 0.12);
         }
 
-        .card-emoji {
-          font-size: 28px;
-          line-height: 1;
-          margin-bottom: 12px;
-        }
+        .card-emoji { font-size: 28px; line-height: 1; margin-bottom: 12px; }
         .card-name {
           font-family: Impact, "Arial Black", "Arial Narrow", sans-serif;
-          font-size: 22px;
-          font-weight: 900;
-          text-transform: uppercase;
-          letter-spacing: 0.03em;
-          color: #fff;
-          display: inline;
+          font-size: 22px; font-weight: 900;
+          text-transform: uppercase; letter-spacing: 0.03em;
+          color: #fff; display: inline;
         }
         .card-state {
           font-family: Impact, "Arial Black", "Arial Narrow", sans-serif;
-          font-size: 22px;
-          color: #4ab8e8;
-          margin-left: 8px;
-          display: inline;
+          font-size: 22px; color: #4ab8e8; margin-left: 8px; display: inline;
         }
         .card-meta {
-          font-size: 11px;
-          color: #555;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-          margin-top: 8px;
+          font-size: 11px; color: #555; letter-spacing: 0.06em;
+          text-transform: uppercase; margin-top: 8px;
         }
         .spot-badge {
-          display: inline-block;
-          margin-top: 14px;
-          padding: 3px 12px;
-          border-radius: 20px;
+          display: inline-block; margin-top: 14px;
+          padding: 3px 12px; border-radius: 20px;
           border: 1px solid rgba(74, 184, 232, 0.3);
-          color: #4ab8e8;
-          font-size: 12px;
-          font-weight: 500;
-          letter-spacing: 0.02em;
+          color: #4ab8e8; font-size: 12px; font-weight: 500; letter-spacing: 0.02em;
         }
 
-        .axes-section {
-          max-width: 640px;
+        .wanted-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 12px;
+          padding: 8px 24px 40px;
+          max-width: 860px;
           margin: 0 auto;
-          padding: 3rem 2rem 4rem;
+        }
+
+        .wanted-card {
+          background: #0a0a0a;
+          border: 1px solid #1a1a1a;
+          border-radius: 10px;
+          padding: 20px;
+          transition: border-color 0.2s;
+        }
+        .wanted-card:hover { border-color: #2a2a2a; }
+
+        .vote-btn {
+          background: transparent;
+          border: 1px solid #2a2a2a;
+          border-radius: 6px;
+          color: #888;
+          cursor: pointer;
+          font-size: 0.8rem;
+          padding: 6px 12px;
+          transition: border-color 0.15s, color 0.15s;
+          width: 100%;
+          margin-top: 8px;
+        }
+        .vote-btn:hover:not(:disabled) { border-color: #4ab8e8; color: #4ab8e8; }
+        .vote-btn.voted { border-color: #4ab8e8; color: #4ab8e8; }
+        .vote-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+
+        .pioneer-btn {
+          background: transparent;
+          border: none;
+          color: #555;
+          cursor: pointer;
+          font-size: 0.75rem;
+          padding: 4px 0;
+          text-align: left;
+          text-decoration: none;
+          display: block;
+          margin-top: 8px;
+          transition: color 0.15s;
+        }
+        .pioneer-btn:hover { color: #4ab8e8; }
+
+        .axes-section {
+          max-width: 640px; margin: 0 auto; padding: 3rem 2rem 4rem;
         }
         .axes-title {
-          text-align: center;
-          font-size: 0.75rem;
-          letter-spacing: 0.15em;
-          color: #444;
-          text-transform: uppercase;
-          margin-bottom: 2.5rem;
+          text-align: center; font-size: 0.75rem; letter-spacing: 0.15em;
+          color: #444; text-transform: uppercase; margin-bottom: 2.5rem;
         }
-        .axis-row {
-          margin-bottom: 2rem;
-        }
-        .axis-ends {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: 0.4rem;
-        }
-        .axis-end-label {
-          font-size: 0.78rem;
-          color: #bbb;
-          font-weight: 500;
-        }
+        .axis-row { margin-bottom: 2rem; }
+        .axis-ends { display: flex; justify-content: space-between; margin-bottom: 0.4rem; }
+        .axis-end-label { font-size: 0.78rem; color: #bbb; font-weight: 500; }
         .axis-gradient-x {
-          height: 3px;
-          border-radius: 2px;
+          height: 3px; border-radius: 2px;
           background: linear-gradient(to right, #4f4f4f, #f59e0b);
         }
         .axis-gradient-y {
-          height: 3px;
-          border-radius: 2px;
+          height: 3px; border-radius: 2px;
           background: linear-gradient(to right, #4f4f4f, #e879f9);
         }
         .axis-name {
-          text-align: center;
-          font-size: 0.68rem;
-          letter-spacing: 0.1em;
-          color: #444;
-          text-transform: uppercase;
-          margin-top: 0.4rem;
+          text-align: center; font-size: 0.68rem; letter-spacing: 0.1em;
+          color: #444; text-transform: uppercase; margin-top: 0.4rem;
         }
       `}</style>
 
@@ -181,9 +252,7 @@ export default function LandingPage() {
         <h1 style={{
           fontFamily: 'Impact, "Arial Black", "Arial Narrow", sans-serif',
           fontSize: 'clamp(2.5rem, 8vw, 5rem)',
-          letterSpacing: '0.05em',
-          color: '#fff',
-          marginBottom: '0.5rem',
+          letterSpacing: '0.05em', color: '#fff', marginBottom: '0.5rem',
         }}>
           THE BAR GRAPH
         </h1>
@@ -219,6 +288,60 @@ export default function LandingPage() {
               </a>
             );
           })}
+        </div>
+      )}
+
+      {/* Wanted Cities */}
+      {wantedCities.length > 0 && (
+        <div style={{ borderTop: '1px solid #111', paddingTop: '3rem' }}>
+          <div style={{ textAlign: 'center', padding: '0 2rem 2rem' }}>
+            <h2 style={{
+              fontFamily: 'Impact, "Arial Black", "Arial Narrow", sans-serif',
+              fontSize: 'clamp(1.8rem, 5vw, 3rem)',
+              letterSpacing: '0.08em', color: '#fff', marginBottom: '0.5rem',
+            }}>
+              WANTED
+            </h2>
+            <p style={{ color: '#555', fontSize: '0.95rem' }}>
+              These cities need a pioneer. Be the first to map yours.
+            </p>
+          </div>
+
+          <div className="wanted-grid">
+            {wantedCities.map(city => {
+              const voted = !!userVotes[city.id];
+              const isVoting = votingId === city.id;
+              return (
+                <div key={city.id} className="wanted-card">
+                  <div style={{
+                    fontFamily: 'Impact, "Arial Black", sans-serif',
+                    fontSize: '1.15rem', letterSpacing: '0.03em',
+                  }}>
+                    {city.city}
+                  </div>
+                  <div style={{ color: '#4ab8e8', fontSize: '0.85rem', marginTop: 2 }}>
+                    {city.state}
+                  </div>
+                  <div style={{ color: '#555', fontSize: '0.8rem', marginTop: 8 }}>
+                    {city.votes || 0} vote{city.votes !== 1 ? 's' : ''}
+                  </div>
+                  <button
+                    className={`vote-btn${voted ? ' voted' : ''}`}
+                    onClick={() => handleVote(city.id)}
+                    disabled={voted || isVoting}
+                  >
+                    {isVoting ? '…' : voted ? '✓ Voted' : '+ Vote'}
+                  </button>
+                  <a
+                    href={`/submit?city=${encodeURIComponent(city.city)}&state=${encodeURIComponent(city.state)}`}
+                    className="pioneer-btn"
+                  >
+                    Pioneer this city →
+                  </a>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
