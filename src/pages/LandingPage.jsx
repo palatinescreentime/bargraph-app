@@ -351,6 +351,60 @@ export default function LandingPage() {
         </div>
       )}
 
+      {/* Contribution CTA */}
+      <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px' }}>
+        {currentUser ? (
+          <div style={{
+            background: '#0f0f0f', border: '1px solid #2a2a2a',
+            borderRadius: 12, padding: 24,
+          }}>
+            <p style={{ color: '#fff', fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
+              Ready to contribute?
+            </p>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <a href="/submit?flow=venue" style={{
+                border: '1px solid #4ab8e8', borderRadius: 8, color: '#4ab8e8',
+                fontSize: '0.9rem', fontWeight: 600, padding: '10px 20px',
+                textDecoration: 'none', transition: 'background 0.15s',
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(74,184,232,0.08)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                + Add a venue
+              </a>
+              <a href="/submit?flow=city" style={{
+                border: '1px solid #4ab8e8', borderRadius: 8, color: '#4ab8e8',
+                fontSize: '0.9rem', fontWeight: 600, padding: '10px 20px',
+                textDecoration: 'none', transition: 'background 0.15s',
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(74,184,232,0.08)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                + Submit a city
+              </a>
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            background: '#0a0a0a', border: '1px solid #1e1e1e',
+            borderRadius: 12, padding: 24,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            flexWrap: 'wrap', gap: 12,
+          }}>
+            <p style={{ color: '#888', fontSize: '0.95rem', margin: 0 }}>
+              Know a great spot that&apos;s missing?
+            </p>
+            <a href="/auth" style={{
+              border: '1px solid #2a2a2a', borderRadius: 8, color: '#4ab8e8',
+              fontSize: '0.9rem', padding: '9px 18px', textDecoration: 'none',
+              whiteSpace: 'nowrap',
+            }}>
+              Sign in to add it →
+            </a>
+          </div>
+        )}
+      </div>
+
       {/* Wanted Cities */}
       {wantedCities.length > 0 && (
         <div style={{ borderTop: '1px solid #111', paddingTop: '3rem' }}>

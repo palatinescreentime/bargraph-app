@@ -89,7 +89,7 @@ function StepWrapper({ children, onBack, showBack = true }) {
 
 // ─── VENUE FLOW ─────────────────────────────────────────────────────────────
 
-function VenueFlow({ currentUser }) {
+function VenueFlow({ currentUser, prefilledCityId = '' }) {
   const [step, setStep] = useState(0);
   const [cities, setCities] = useState([]);
   const [data, setData] = useState({
@@ -103,9 +103,25 @@ function VenueFlow({ currentUser }) {
 
   useEffect(() => {
     getDocs(query(collection(db, 'cities'), where('status', '==', 'live'))).then(snap => {
-      setCities(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.name.localeCompare(b.name)));
+      const loaded = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setCities(loaded);
+
+      if (prefilledCityId) {
+        const match = loaded.find(c => c.id === prefilledCityId);
+        if (match) {
+          setData(prev => ({
+            ...prev,
+            cityId: match.id,
+            cityName: match.name,
+            citySubareas: match.subareas || [],
+          }));
+          setStep(1); // skip city selection — already chosen
+        }
+      }
     });
-  }, []);
+  }, [prefilledCityId]);
 
   const hasSubareas = data.citySubareas && data.citySubareas.length > 0;
   const totalSteps = hasSubareas ? 8 : 7;
@@ -668,13 +684,21 @@ export default function SubmitPage() {
   const { currentUser } = useAuth();
   const [flow, setFlow] = useState(null);
 
+  // Parse query params once
   const searchParams = new URLSearchParams(window.location.search);
-  const prefilledCity = searchParams.get('city') || '';
-  const prefilledState = searchParams.get('state') || '';
+  const flowParam   = searchParams.get('flow')  || '';   // 'venue' | 'city'
+  const cityParam   = searchParams.get('city')  || '';   // subdomain ID (from BarGraph) OR city name (from pioneer)
+  const stateParam  = searchParams.get('state') || '';   // present when coming from pioneer button
+
+  // cityParam with no stateParam = subdomain ID → venue flow
+  // cityParam with stateParam    = display name → city flow
+  const venuePrefilledCityId   = cityParam && !stateParam ? cityParam : '';
+  const cityPrefilledName      = stateParam               ? cityParam : '';
 
   useEffect(() => {
-    if (prefilledCity) setFlow('city');
-  }, [prefilledCity]);
+    if (flowParam === 'venue' || venuePrefilledCityId) setFlow('venue');
+    else if (flowParam === 'city' || (cityParam && stateParam)) setFlow('city');
+  }, [flowParam, venuePrefilledCityId, cityParam, stateParam]);
 
   return (
     <div style={baseStyle}>
@@ -728,9 +752,9 @@ export default function SubmitPage() {
           </div>
         </div>
       ) : flow === 'venue' ? (
-        <VenueFlow currentUser={currentUser} />
+        <VenueFlow currentUser={currentUser} prefilledCityId={venuePrefilledCityId} />
       ) : (
-        <CityFlow currentUser={currentUser} initialCityName={prefilledCity} initialState={prefilledState} />
+        <CityFlow currentUser={currentUser} initialCityName={cityPrefilledName} initialState={stateParam} />
       )}
     </div>
   );
