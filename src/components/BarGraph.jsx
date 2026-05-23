@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 
 const PRICE_TIERS = [
   { max: 7,   label: '$',    r: 6  },
@@ -14,12 +15,18 @@ function getPriceTier(price) {
 const AXIS_MIN = -5;
 const AXIS_MAX = 5;
 const PAD = 60;
+const ADMIN_EMAIL = 'jrgerberich@gmail.com';
 
 function toSVG(val, size) {
   return PAD + ((val - AXIS_MIN) / (AXIS_MAX - AXIS_MIN)) * (size - 2 * PAD);
 }
 
+function mapsUrl(name, address) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + ' ' + address)}`;
+}
+
 export default function BarGraph({ city, bars = [], categories = {} }) {
+  const { currentUser, signOut } = useAuth();
   const [dark, setDark] = useState(true);
   const [activeSubarea, setActiveSubarea] = useState(null);
   const [activeCats, setActiveCats] = useState([]);
@@ -29,6 +36,7 @@ export default function BarGraph({ city, bars = [], categories = {} }) {
   const svgRef = useRef(null);
   const [svgSize, setSvgSize] = useState(600);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const hideTimerRef = useRef(null);
 
   // Hash routing for subarea
   useEffect(() => {
@@ -58,8 +66,8 @@ export default function BarGraph({ city, bars = [], categories = {} }) {
   const fg = dark ? '#fff' : '#111';
   const gridColor = dark ? '#1e1e1e' : '#e0e0e0';
   const axisColor = dark ? '#333' : '#ccc';
+  const T = { ttSub: dark ? '#888' : '#666' };
 
-  // Map slug → label for subarea filtering
   const activeSubareaLabel = city?.subareas?.find(s => s.slug === activeSubarea)?.label || null;
 
   const filteredBars = bars.filter(b => {
@@ -70,7 +78,6 @@ export default function BarGraph({ city, bars = [], categories = {} }) {
 
   const hasFilter = activeSubarea || activeCats.length > 0;
 
-  // Subarea counts (keyed by label)
   const subareaCount = {};
   bars.forEach(b => {
     subareaCount[b.subarea] = (subareaCount[b.subarea] || 0) + 1;
@@ -96,7 +103,30 @@ export default function BarGraph({ city, bars = [], categories = {} }) {
     }
   }
 
+  function handleDotMouseEnter(bar) {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    setHovered(bar);
+  }
+
+  function handleDotMouseLeave() {
+    hideTimerRef.current = setTimeout(() => setHovered(null), 120);
+  }
+
+  function handleTooltipMouseEnter() {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+  }
+
+  function handleTooltipMouseLeave() {
+    setHovered(null);
+  }
+
   const usedCats = [...new Set(bars.map(b => b.cat))].filter(c => categories[c]);
+  const isAdmin = currentUser?.email === ADMIN_EMAIL;
+  const truncatedEmail = currentUser?.email
+    ? currentUser.email.length > 22
+      ? currentUser.email.slice(0, 20) + '…'
+      : currentUser.email
+    : null;
 
   return (
     <div style={{ background: bg, minHeight: '100vh', color: fg, fontFamily: 'sans-serif', transition: 'background 0.3s' }}>
@@ -130,6 +160,18 @@ export default function BarGraph({ city, bars = [], categories = {} }) {
           border-radius: 16px 16px 0 0;
           box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
         }
+        .maps-link {
+          color: inherit; text-decoration: underline;
+          text-underline-offset: 2px; cursor: pointer;
+        }
+        .maps-link:hover { opacity: 0.8; }
+        .auth-link {
+          background: none; border: 1px solid #333; border-radius: 6px;
+          color: #4ab8e8; cursor: pointer; font-size: 0.75rem;
+          padding: 4px 10px; text-decoration: none; white-space: nowrap;
+          transition: border-color 0.15s;
+        }
+        .auth-link:hover { border-color: #4ab8e8; }
       `}</style>
 
       {/* Header */}
@@ -163,15 +205,38 @@ export default function BarGraph({ city, bars = [], categories = {} }) {
             </span>
           )}
         </div>
-        <button
-          onClick={() => setDark(d => !d)}
-          style={{
-            background: 'none', border: `1px solid ${dark ? '#333' : '#ccc'}`,
-            borderRadius: 6, padding: '4px 10px', cursor: 'pointer', color: fg, fontSize: '0.8rem',
-          }}
-        >
-          {dark ? '☀️' : '🌙'}
-        </button>
+
+        {/* Right controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {currentUser ? (
+            <>
+              {isAdmin && (
+                <a href="/admin" className="auth-link" style={{ border: '1px solid #a78bfa', color: '#a78bfa' }}>
+                  Admin
+                </a>
+              )}
+              <span style={{ fontSize: '0.75rem', color: '#555', display: 'none' }}
+                title={currentUser.email}
+              >
+                {truncatedEmail}
+              </span>
+              <button onClick={signOut} className="auth-link">
+                Sign out
+              </button>
+            </>
+          ) : (
+            <a href="/auth" className="auth-link">Sign in</a>
+          )}
+          <button
+            onClick={() => setDark(d => !d)}
+            style={{
+              background: 'none', border: `1px solid ${dark ? '#333' : '#ccc'}`,
+              borderRadius: 6, padding: '4px 10px', cursor: 'pointer', color: fg, fontSize: '0.8rem',
+            }}
+          >
+            {dark ? '☀️' : '🌙'}
+          </button>
+        </div>
       </div>
 
       {/* Subarea filter */}
@@ -288,7 +353,7 @@ export default function BarGraph({ city, bars = [], categories = {} }) {
             const tier = getPriceTier(bar.price);
             const color = categories[bar.cat]?.color || '#888';
             const cx = toSVG(bar.x, svgSize);
-            const cy = toSVG(-bar.y, svgSize); // invert Y so higher price = higher on chart
+            const cy = toSVG(-bar.y, svgSize);
             const isFiltered = filteredBars.includes(bar);
             const isHovered = hovered?.name === bar.name;
             const isPopped = popped === bar.name;
@@ -299,8 +364,8 @@ export default function BarGraph({ city, bars = [], categories = {} }) {
                 key={bar.name}
                 className={`dot${isPopped ? ' popped' : ''}`}
                 transform={`translate(${cx},${cy})`}
-                onMouseEnter={() => setHovered(bar)}
-                onMouseLeave={() => setHovered(null)}
+                onMouseEnter={() => handleDotMouseEnter(bar)}
+                onMouseLeave={handleDotMouseLeave}
                 onClick={() => handleDotClick(bar)}
                 style={{ cursor: 'pointer' }}
               >
@@ -327,23 +392,34 @@ export default function BarGraph({ city, bars = [], categories = {} }) {
 
         {/* Desktop tooltip */}
         {hovered && (
-          <div style={{
-            position: 'absolute',
-            left: Math.min(tooltipPos.x + 12, svgSize - 230),
-            top: Math.max(tooltipPos.y - 60, 0),
-            background: dark ? '#111' : '#fff',
-            border: `1px solid ${dark ? '#333' : '#ddd'}`,
-            borderRadius: 8,
-            padding: '0.75rem 1rem',
-            pointerEvents: 'none',
-            fontSize: '0.82rem',
-            zIndex: 50,
-            maxWidth: 220,
-            boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-            color: fg,
-          }}>
+          <div
+            onMouseEnter={handleTooltipMouseEnter}
+            onMouseLeave={handleTooltipMouseLeave}
+            style={{
+              position: 'absolute',
+              left: Math.min(tooltipPos.x + 12, svgSize - 230),
+              top: Math.max(tooltipPos.y - 60, 0),
+              background: dark ? '#111' : '#fff',
+              border: `1px solid ${dark ? '#333' : '#ddd'}`,
+              borderRadius: 8,
+              padding: '0.75rem 1rem',
+              fontSize: '0.82rem',
+              zIndex: 50,
+              maxWidth: 220,
+              boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+              color: fg,
+            }}
+          >
             <div style={{ fontWeight: 'bold', marginBottom: 4 }}>{hovered.name}</div>
-            <div style={{ color: '#888', fontSize: '0.75rem' }}>{hovered.address}</div>
+            <a
+              href={mapsUrl(hovered.name, hovered.address)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="maps-link"
+              style={{ color: T.ttSub, fontSize: '0.75rem' }}
+            >
+              {hovered.address}
+            </a>
             <div style={{ marginTop: 6, display: 'flex', gap: 8, fontSize: '0.75rem', flexWrap: 'wrap' }}>
               <span style={{ color: categories[hovered.cat]?.color || '#888' }}>{hovered.cat}</span>
               <span style={{ color: '#888' }}>{'$'.repeat(getPriceTier(hovered.price).label.length)}</span>
@@ -359,7 +435,15 @@ export default function BarGraph({ city, bars = [], categories = {} }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
             <div>
               <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#fff' }}>{selected.name}</div>
-              <div style={{ color: '#888', fontSize: '0.8rem', marginTop: 2 }}>{selected.address}</div>
+              <a
+                href={mapsUrl(selected.name, selected.address)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="maps-link"
+                style={{ color: '#888', fontSize: '0.8rem', marginTop: 2, display: 'block' }}
+              >
+                {selected.address}
+              </a>
             </div>
             <button
               onClick={() => setSelected(null)}

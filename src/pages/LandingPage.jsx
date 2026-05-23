@@ -24,8 +24,53 @@ const CITY_META = {
   westlafayette:   'PURDUE CAMPUS · WEST LAFAYETTE · LAFAYETTE',
 };
 
+const ADMIN_EMAIL = 'jrgerberich@gmail.com';
+
+function AuthHeaderButton({ currentUser, signOut }) {
+  const isAdmin = currentUser?.email === ADMIN_EMAIL;
+  const truncated = currentUser?.email
+    ? currentUser.email.length > 24 ? currentUser.email.slice(0, 22) + '…' : currentUser.email
+    : null;
+
+  if (!currentUser) {
+    return (
+      <a href="/auth" style={{
+        border: '1px solid #2a2a2a', borderRadius: 6, color: '#4ab8e8',
+        fontSize: '0.8rem', padding: '5px 14px', textDecoration: 'none',
+        whiteSpace: 'nowrap',
+      }}>
+        Sign in
+      </a>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {isAdmin && (
+        <a href="/admin" style={{
+          border: '1px solid #2a2a2a', borderRadius: 6, color: '#a78bfa',
+          fontSize: '0.8rem', padding: '5px 14px', textDecoration: 'none',
+          whiteSpace: 'nowrap',
+        }}>
+          Admin
+        </a>
+      )}
+      <span style={{ color: '#555', fontSize: '0.75rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        title={currentUser.email}>
+        {truncated}
+      </span>
+      <button onClick={signOut} style={{
+        background: 'none', border: '1px solid #2a2a2a', borderRadius: 6,
+        color: '#888', cursor: 'pointer', fontSize: '0.8rem', padding: '5px 14px',
+      }}>
+        Sign out
+      </button>
+    </div>
+  );
+}
+
 export default function LandingPage() {
-  const { currentUser } = useAuth();
+  const { currentUser, signOut } = useAuth();
   const [cities, setCities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [wantedCities, setWantedCities] = useState([]);
@@ -247,8 +292,23 @@ export default function LandingPage() {
         }
       `}</style>
 
-      {/* Header */}
-      <div style={{ textAlign: 'center', padding: '3rem 2rem 1.5rem' }}>
+      {/* Top nav bar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0.85rem 1.5rem',
+        borderBottom: '1px solid #111',
+      }}>
+        <span style={{
+          fontFamily: 'Impact, "Arial Black", "Arial Narrow", sans-serif',
+          fontSize: '1.25rem', letterSpacing: '0.05em', color: '#fff',
+        }}>
+          THE BAR GRAPH
+        </span>
+        <AuthHeaderButton currentUser={currentUser} signOut={signOut} />
+      </div>
+
+      {/* Hero */}
+      <div style={{ textAlign: 'center', padding: '2.5rem 2rem 1.5rem' }}>
         <h1 style={{
           fontFamily: 'Impact, "Arial Black", "Arial Narrow", sans-serif',
           fontSize: 'clamp(2.5rem, 8vw, 5rem)',
